@@ -1,0 +1,336 @@
+Sequelize - Introduction and Connection to a Database
+
+- What is sequelize
+Sequelize is ORM (Object Relational Mapper). ORM is a programming technique to write datebase queries in an object-oriented way using your preffered programming language. In simple terms Sequelize lets you write SQL queries in JS, examples bellow:
+
+SELECT * FROM users;
+Users.findAll();
+
+INSERT INTO users (username, password, age) VALUES ('name', 'pass', 25)
+Users.create({
+    username: 'name',
+    password: 'pass',
+    age: 25
+})
+
+SELECT password FROM users WHERE username = 'name' LIMIT 1
+Users.findOne({
+    where: {
+        username: 'name'
+    }
+})
+
+SELECT * FROM users WHERE age = 25 OR age = 37
+Users.findAll({
+    where: {
+        [Op.or]: [{age: 25}, {age: 37}]
+    }
+})
+
+- Installation
+When installing sequelize you also need to install driver that correspons to the database you will be connecting to.
+
+- Start sample
+
+const Sequelize = require('sequelize'); // you don't have to require driver for your db, this does that for you
+
+const sequelize = new Sequelize('db_name', 'db_username', 'db_password', {
+    host: db_host, // default is 'localhost'
+    port: db_port, // default depends on dialect for mysql it is 3306
+    dialect: 'mysql',
+    define: {
+        freezeTableName: true // You can do this to prevent pluralization of table names on a whole DB scale
+    }
+})
+
+// To start connection use authenticate function
+// This function returns promise
+sequelize.authenticate().then(() => {
+    console.log('Connection successful!");
+}).catch((err) => {
+    console.log('Error connecting to database');
+})
+  
+Sequelize - Models 
+
+Models are used to represent tables. To create a table we use define method
+
+const User = sequelize.define('user', {
+    user_id: {
+        type: Sequalize.DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    username: {
+        type: Sequelize.DataTypes.STRING,
+        allowNull: false, // It neeeds to have a value
+    },
+    password: {
+        type: Sequelize.DataTypes.STRING
+    },
+    age: {
+        type: Sequelize.DataTypes.INTEGER,
+        defaultValue: 21,
+    }
+}, {
+    freezeTableNAme: true, // Sequelize will be default pluralize name of the table this option will prevent it
+})
+
+Sequelize DataTypes:
+
+STRING: VARCHAR(255)
+TEXT: TEXT
+BOOLEAN: TINYINT(1)
+INTEGER: INTEGER
+FLOAT: FLOAT
+STRING(1234): VARCHAR(1234)
+DATE: DATE
+
+In order to insert table we need to use sync method. Sync method will create a table if it doesn't exist, or it wouldn't do anything. If you call sync functions like sync({ force: true }) then it would drop table if it already exists and creat new one. Another option is to call this function with sync({ alter: true }) in this case it would perform necessary changes in the table to make it match the model.
+
+User.sync({ alter: true }).then(() => {
+    console.log("Table and model synced successfully!");
+}).cathc((err) => {
+    console.log("Error syncing the table and model!");
+});
+
+You can drop multiple table with sequalize by using drop() method. You can also pass optional regex param to tell sequalize which tables you want to drop, example:
+
+sequelize.drop({ match: /_test$/ }) // This will drop any table that ends in _test
+
+Regex 
+/abc/i - Look for abc in a case insensitive way
+/[h]/g - Look for all occurences of the letter h
+/[h]/ - Look for first occurence of the letter h and then stop
+/\d/g - Find all occurences of  digits
+
+sync and drop are not recommended for production level software, synchronization should be done with migrations!
+
+Sequelize - Model Instances
+
+Inserting data with build and save
+
+Build method is used to build the object that can be inserted in a table, and it is executed immediately.
+Save method is used to save object that we've built, and this method is async. 
+
+User
+.sync({ alter: true })
+.then(() => {
+    // working with our updated table.
+    const user = User.build({
+        username: 'name1',
+        password: 'pass1',
+        age: 25
+    });
+
+    return user.save(); // this will return a promise
+})
+.then((data) => {
+    console.log(data.toJSON()); // This will print inserted data
+    console.log("User added to database!");
+})
+.catch((err) => {
+    console.log(err)
+})
+
+Since this can be tedious there's a method that combines these two methods into one called create,
+example below is equivalent<.
+
+return User.create({
+    username: 'name1',
+    password: 'pass1',
+    age: 25
+})
+
+Updating inserted data
+
+User
+.sync({ alter: true })
+.then(() => {
+    return User.create({
+        username: 'name1',
+        password: 'pass1',
+        age: 25
+    })
+})
+.then((data) => {
+    console.log("User added to database!");
+
+    // Updating inserted data
+    data.username = 'pizza'
+    return data.save()
+})
+.then(() => {
+    console.log("User updated");
+})
+.catch((err) => {
+    console.log(err)
+})
+
+If you want to delete some date you can use .destroy() method, and if you want to restore original data you can use .reload().
+You can even save specific fields to database you just need to specify array of fields that you want to save, example:
+
+data.username = "name2";
+data.age = 30;
+return data.save({ fields: ['age'] });
+
+The way sequelize works is that it only saves fields that have been changed, if we would to just do .save(), sequelize would only save username and age, even though there is a password field as well.
+
+Incrementing and Decrementing integer data
+
+data.increment({ age: 2 })
+data.decrement({ age: 2 })
+
+You can increment or decrement multiple fields at once for example,
+
+data.increment({ age: 1, height: 1 })
+
+You can also create multiple object at once by using method called bulkCreate that takes array of objects, example:
+
+User.bulkCreate([{
+    username: 'name1',
+    password: 'pass1',
+    age: 25
+},{
+    username: 'name2',
+    password: 'pass2',
+    age: 26
+}])
+
+One thing to note about bulkCreate is that it doesn't run validation on each object that it creates, example of validation below:
+
+username: {
+    type: DataType.STRING,
+    allowNull: false,
+    validate: {
+        len: [4, 6] // What we are inserting needs to pass this to be allowed
+    }
+}
+
+bulkCreate on it's own is not going to run validation, you need to specify that option by adding { validate: true }, of course this will decrease performance.
+
+Sequelize - Model Querying
+
+Selecting all entries from table:
+
+// SELECT * FROM 'users' AS 'users'
+Users.findAll() 
+
+Selecting specific columns from table:
+
+// SELECT username, password FROM users AS users
+findAll({ 
+    attributes: ['username', 'password']
+})
+
+We can also exclude certain columns by using exclude property, example:
+
+findAll({ 
+    attributes: {
+        exclude: ['password']
+    }
+})
+
+Selecting specific columns from table and giving them some alias:
+
+// SELECT username AS myName, password AS myPass FROM users AS users
+findAll({ 
+    attributes: [
+        ['username', 'myName'], 
+        ['password', 'myPass']
+    ]
+});
+
+Using aggregation functions:
+
+// SELECT SUM('age') AS howOld from users AS users
+findAll({
+    attributes: [
+        [sequelize.fn('SUM', sequelize.col('age')), 'howOld']
+    ] 
+})
+
+Selecting with filter condition
+
+// SELECT * FROM users AS users WHERE users.username == "name1"
+findAll({
+    where: { username: "name1" }
+})
+
+
+To limit the amount of returned row we can do,
+
+findAll({ limit: 2 })
+
+Ordering and Grouping
+
+User.findAll({ order: [['age', 'DESC']] })
+User.findAll({
+    attributes: [
+        'username', 
+        [fn('SUM', col('age')), 'sum_age']
+    ],
+    group: 'username'
+})                
+
+Operators
+
+const { Op } Sequelize;
+
+findAll({ 
+    where: {
+        [Op.or]: { username: 'soccer', age: 45 } 
+    }
+})
+
+Default behavior of where is [Op.and], so { where: { username: 'soccer', age: '45' }} is users.username == soccer and users.age == 45
+
+findAll({ 
+    where: {
+        age: {
+            [Op.gt]: 25
+        }
+    }
+})
+
+// SELECT * FROM users AS users WHERE users.age < 45 OR users.age IS NULL
+findAll({ 
+    where: {
+        age: {
+            [Op.or]: {
+                [Op.lt]: 45,
+                [Op.eq]: null
+            }
+        }
+    }
+})
+
+You can use sequelize.fn within where clause, but you need to use sequelize.where
+
+findAll({ 
+    where: sequelize.where(sequelize.fn('char_length', sequelize.col('username')), 6)
+})
+
+Updating rows with Update()
+
+User.update(
+    { username: 'pizza' }, 
+    {
+        where: { age: 25 }
+    }
+)
+
+Delete rows with Destroy()
+
+User.destroy({ where: { username: "pizza" }});
+User.destroy({ truncate: true }); // Deletes every row in a table, but doesn't delete table itself
+
+Utility methods
+
+User.max('age')
+User.sum('age', { where: { age: 21 }}) // gives a age sum of all users that are 21 yrs old
+
+
+
+
+

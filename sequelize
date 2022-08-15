@@ -1,0 +1,62 @@
+Sequelize - Finder Methods
+
+Sequelize model instance is essentially a row in a table/model, to view values stored in a row you can use method toJSON().
+Example below will yield the same result as using data.toJSON()
+
+sync().then(() => {
+    return User.findAll({ raw: true })
+}).then((data) => {
+    console.log(data)
+}).catch(() => {})
+
+Example of usage with where clause
+
+sync().then(() => {
+    return User.findAll({
+        where: { age: 25 }, 
+        raw: true 
+    })
+}).then((data) => {
+    console.log(data)
+}).catch(() => {})
+
+findByPk - Finding row by primary key
+
+findByPk(28)
+
+findOne - Return the first row that matches the condition
+
+findOne() // This will return first row
+findOne({
+    where: {
+        age: {
+            [Op.or]: {
+                [Op.lt]: 25,
+                [Op.eq]: null
+            }
+        }
+    }
+})
+
+findOrCreate - Create a row in a table if it can't find one, this functions returns an array of instance and a boolean. Boolean is signaling whether instance is found or created, boolean is true if instance was created.
+
+findOrCreate({ 
+    where: { username: 'name2' },
+    defaults: {
+        age: 30 // Overrides defaults enforced by model
+    }
+})
+
+findAndCountAll - This method combines findAll and Count
+
+sync().then(() => {
+    return User.findAndCountAll({
+        where: { username: 'name' },
+        raw: true
+    })
+}).then((data) => {
+    const { count, rows } = data;
+})
+
+Sequelize - Setters, Getters and Virtual Fields
+
