@@ -60,3 +60,284 @@ sync().then(() => {
 
 Sequelize - Setters, Getters and Virtual Fields
 
+Getters & Setters
+
+const User = sequelize.define('user', {
+    user_id: {
+        type: Sequalize.DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    username: {
+        type: Sequelize.DataTypes.STRING,
+        allowNull: false, // It neeeds to have a value
+        get() {
+            // This function is called automatically whenever field value is read
+            // for example when we do user.username
+
+            const rawValue = this.getDataValue('username');
+
+            // We use this.getDataValue('username') instead of this.username
+            // because this.username will call get() and we will get infinitive loop
+
+            // Whenever we retrieve user we are going to capitalize username
+            return rawValue.toUpperCase()
+        }
+    },
+    password: {
+        type: Sequelize.DataTypes.STRING,
+        set(value) {
+            // value is value that is about to be stored into DB
+            // to insert we use setDataValue(col_name, value)
+
+            // setters and getters only deal with sync code so we are going to use sync bcrypt
+            const salt = bcrypt.genSaltSync(12)
+            const hash = bcrypt.hashSync(value, salt);
+            
+            this.setDataValue('password', hash)
+        }
+    },
+    age: {
+        type: Sequelize.DataTypes.INTEGER,
+        defaultValue: 21,
+    }
+}, {
+    freezeTableNAme: true, // Sequelize will be default pluralize name of the table this option will prevent it
+})
+
+Virtual fields 
+
+Fields that sequelize populates under the hood but are not stored in DB, common use is to combine different attributes
+
+aboutUser: {
+    type: DataType.VIRTUAL, // This will not create column in DB
+    get() {
+        return `${this.username}: ${this.description}`
+    }
+}
+
+Sequelize - Validators and Constraints
+
+email: {
+    type: DataType.STRING,
+    unique: true, // ensures that this value is unique
+    validate: {
+        // built-in validator functions
+        isEmail: true,
+        isIn: ['email1@email.com', 'email2@email.com'], // If email is not included in this array it will throw an error 
+    }
+}
+
+age: {
+    type: DataType.INTEGER,
+    validate: {
+        // custom validator
+        isOldEnough(value) {
+            if (value < 21) throw new Error('Too young');
+        }
+    }
+}
+
+age: {
+    type: DataType.INTEGER,
+    validate: {
+        // This is built-in validator, and we are overriding error message
+        isNumeric {
+            msg: "You must enter a number for age."
+        }
+    }
+}
+
+email: {
+    type: DataType.STRING,
+    unique: true, // ensures that this value is unique
+    validate: {
+        isIn: {
+            args: ['email1@email.com', 'email2@email.com'],
+            msg: 'The provided must be one of the following...'
+        }
+    }
+}
+
+If you use allowNull: true constraint on a column (which is default) then built-in validatiors will not run, but custom ones will.
+
+
+This validators are column wide, we can specify model wide validation. This validation will run after all column validations.
+
+const User = sequelize.define('user', {
+    user_id: {
+        type: Sequalize.DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    username: {
+        type: Sequelize.DataTypes.STRING,
+        allowNull: false, // It neeeds to have a value
+        get() {
+            // This function is called automatically whenever field value is read
+            // for example when we do user.username
+
+            const rawValue = this.getDataValue('username');
+
+            // We use this.getDataValue('username') instead of this.username
+            // because this.username will call get() and we will get infinitive loop
+
+            // Whenever we retrieve user we are going to capitalize username
+            return rawValue.toUpperCase()
+        }
+    },
+    password: {
+        type: Sequelize.DataTypes.STRING,
+        set(value) {
+            // value is value that is about to be stored into DB
+            // to insert we use setDataValue(col_name, value)
+
+            // setters and getters only deal with sync code so we are going to use sync bcrypt
+            const salt = bcrypt.genSaltSync(12)
+            const hash = bcrypt.hashSync(value, salt);
+            
+            this.setDataValue('password', hash)
+        }
+    },
+    age: {
+        type: Sequelize.DataTypes.INTEGER,
+        defaultValue: 21,
+    }
+}, {
+    freezeTableNAme: true,
+    validate: {
+        usernamePassMatch() {
+            if (this.username == this.password) throw new Error("Password cannot be your username!");
+        }
+    }
+})
+
+Sequelize - SQL Injection and Raw Queries
+
+Sequelize allows us to write raw queries with query() method, which returns result and metadata (how many rows where affected etc.).
+
+sync().then(() => {
+    return sequelize.query(`UPDATE user SET age = 54 WHERE username = 'name1'`)
+}).then((data) => {
+    [result, metadata] = data;
+    console.log(result);
+    console.log(metadata);
+})
+
+// This will tell sequelize what type of query are we running
+// In case of SELECT type metadata is going to be omitted
+sequelize.query('SELECT * FROM user', { type: QueryTypes.SELECT })
+
+
+SQL Injection
+
+Whenever we are using raw queries SQL Injection might occur, example:
+
+// unsafe
+query(`SELECT username FROM users WHERE username = ${username} AND password = ${password}`)
+
+// safe
+query(`SELECT username FROM users WHERE username = ? AND password = ?`, {
+    replacement: [username, password]
+})
+
+// We can pass replacements as object
+query(`SELECT username FROM users WHERE username = :username AND password IN (:passwords)`, {
+    replacement: {
+        username: 'username1',
+        passwords: ['admin', '12345']
+    }
+})
+
+// We can also pass wildcards
+query(`SELECT username FROM users WHERE username LIKE :username`, {
+    replacement: {
+        username: 'u%', // username starts with u, and ends with whatever
+    }
+})
+
+Bind Parameters
+
+Replacements are preventing SQL Injections by escaping inputs, Bind Parameters send SQL statement and DATA to DB Server separately, so even if SQL statement is provided as DATA it would still be treated as DATA and it will not get executed.
+
+// Notice array is one-based
+query(`SELECT username FROM users WHERE username = $1 AND password = $2`, {
+    bind: [username, password]
+})
+
+query(`SELECT username FROM users WHERE username = $username AND password = $passwords)`, {
+    bind: {
+        username: 'admin',
+        passwords: 'admin'
+    }
+})
+
+Sequelize - Paranoid Tables
+
+This a table where records are deleted but not truly deleted, instead column named deleted_at has a timestamp of deletion request, think of it as a soft deletion. In order to create such table you need to add option { paranoid: true } to model define()
+
+const User = sequelize.define('user', {
+    user_id: {
+        type: Sequalize.DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    username: {
+        type: Sequelize.DataTypes.STRING,
+        allowNull: false,
+        get() {
+            const rawValue = this.getDataValue('username');
+            return rawValue.toUpperCase()
+        }
+    },
+    password: {
+        type: Sequelize.DataTypes.STRING,
+        set(value) {
+            const salt = bcrypt.genSaltSync(12)
+            const hash = bcrypt.hashSync(value, salt);
+            
+            this.setDataValue('password', hash)
+        }
+    },
+    age: {
+        type: Sequelize.DataTypes.INTEGER,
+        defaultValue: 21,
+    }
+}, {
+    freezeTableNAme: true,
+    validate: {
+        usernamePassMatch() {
+            if (this.username == this.password) throw new Error("Password cannot be your username!");
+        }
+    },
+    // In order to create paranoid table we need to have this flags below set to true
+    paranoid: true,
+    timestamp: true
+})
+
+In order to hard delete something from paranoid table we need to use { force: true }
+
+User.destroy({ 
+    where: { user_id: 27 },
+    force: true
+})
+
+Good thing about paranoid table is that you can use restore method to "restore" data, this is essentially writing nulls to deleted_at column.
+
+User.restore({
+    where: { user_id: 27 }
+})
+
+One thing to mention whenever we are selecting rows from paranoid table sequelize will automatically ignore rows where deleted_at has some value, this is not true if we are using raw queries. But if we want to get "deleted" row with sequelize we can use { paranoid: false } as an option for our select method, example:
+
+User.findOne({ paranoid: false })
+
+Sequelize - Associations
+
+
+
+
+
+
+
+
