@@ -334,6 +334,161 @@ User.findOne({ paranoid: false })
 
 Sequelize - Associations
 
+Associations are relationships between tables in DB, these relationships are established with FK. FK is when the PK from parent table appears in child table. Child table is table with FK, meaning it is useless on its own. There are 3 types of associations:
+1. One to one
+2. One to many
+3. Many to many
+
+One to one
+
+This is association where PK from parent table appears in FK column on child table at most once.
+An example would be country and its capital city, every country can have one capital city, and city can be capital of only one country.
+
+const Country = sequelize.define('country', {
+    countryName: {
+        type: DataTypes.STRING,
+        unique: true
+    }
+}, {
+    timestamps: false
+})
+
+const Capital = sequelize.define('capital', {
+    capitalName: {
+        type: DataTypes.STRING,
+        unique: true
+    }
+}, {
+    timestamp: false
+})
+
+To create one to one relationship in sequelize we can use one of two methos hasOne() or belongsTo()
+
+Country.hasOne(Capital); // this will automatically add countryId to capitals table as FK
+
+The way sequelize did this is by taking name of PK key which is id by default and prepending name of the model which is country thus giving countryId. This of course can be customized.
+
+Country.hasOne(Capital, { foreignKey: 'custom_fk_name' });
+
+Linking records with hasOne helper method
+
+Because we used hasOne method we got following helper methods that we can use: getCapital, setCapital, createCapital
+
+let country, capital;
+
+capital = await Capital.findOne({ where: { capitalName: 'Madrid' }})
+country = await Country.findOne({ where: { countryName: 'Spain' }})
+
+await country.setCapital(capital) // This is how link those two together
+
+If we want to find what is capital of some country we can use get method to do this
+
+country = await Country.findOne({ where: { countryName: 'Spain' }})
+capital = await country.getCapital() // This is how we get 'Madrid'
+
+If we want to create capital while we are creating country we can do it in following manner:
+
+country = await Country.create({ countryName: 'USA' })
+await country.createCapital({ capitalName: 'Washington, D.C.' })
+
+belongsTo does the same thing as hasOne so writing Capital.belongsTo(Country) will yield the same exact result as Country.hasOne(Capital) in DB, belongsTo of course returns different helper methods like setCountry, getCountry, and createCountry. It is a good practice to use both of them because helper methods will get attached to source model and then you can conveniently use it.
+
+One thing to mention when you are using this association method you can customize foreignKey column like you would do with any other column during model definition, example:
+
+County.hasOne(Capital, {
+    foreignKey: {
+        name: 'custom_name',
+        type: DataTypes.INTEGER,
+        allowNull: false
+    }
+})
+// And you need to repeat this in your belongsTo method.
+
+hasOne and belongsTo have additional trigger options like onDelete and onUpdate.
+
+County.hasOne(Capital, {
+    onDelete: 'CASCADE' // if we delete a country delete all child rows associated with it will be removed
+    onUpdate: 'CASCADE' // this will update every row in child table that is associated
+})
+
+// for example this will delete 'Madrid' row as well
+Country.destroy({ where: { countryName: 'Spain' }})
+
+One thing to mention is that hasOne is exclusive to one-to-one while belongsTo is not and it can be used with one-to-many relationships, which means that you can use capital.setCountry(country) and set two different capitals to point to the same country.
+
+One to Many
+
+Association where PK from parent table may appear in FK column on child table more then once, example would be user and posts, meaning one user can have many posts. Methods for this type of association are hasMany and belongsTo.
+
+User.hasMany(Post)
+
+One of helper methods that gets attached to User model is addPosts
+
+const user = await User.findOne({ where: { username: 'name1' }});
+const posts = await Post.findAll();
+
+// This will make that all FK in posts table are going to point to 'name1' user
+await user.addPosts(posts);
+
+We can user another helper method provided called countPosts
+
+// This will return how many posts belong to 'name1'
+await user.countPosts();
+
+There are remove helpers like removePost and removePosts, example
+
+const post = await Post.findOne();
+user.removePost(post) // this will set userId FK column to NULL
+
+if we want to delete all posts related to user one we delete user we do this by specifing onDelete: 'CASCADE'
+
+User.hasMany(Post, { onDelete: 'CASCADE' })
+
+Many to Many
+
+Association where a child table (join table) contains two FK columns referencing the PK column of the two parent tables. Example would be Customer and Product, Customer can purchase many products, and product can be purchased by many customers. Here we have to main tables Product and Customers with their PKs and join table that holds their PKs.
+
+Since relational DBs do not provide you with a way to directly implement many-to-many relationship, the way we do it is by creating multiple one-to-many relationships and storing them in extra table called junction model.
+
+Implementation of many-to-many
+
+Customer.belongsToMany(Product, {
+    through: 'customerproduct' // junction table, this is requried
+    foreignKey: 'customer_id'
+})
+Product.belongsToMany(Customer, {
+    through: 'customerproduct',
+    foreignKey: 'product_id'
+})
+
+We can create junction table ourselves
+
+const CustomerProduct = sequelize.define({
+    customerproductId: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    }
+}, { timestamps: false })
+
+Customer.belongsToMany(Product, {
+    through: CustomerProduct // we are passing model instead of a string
+})
+Product.belongsToMany(Customer, {
+    through: CustomerProduct
+})
+
+Helper methods provided by belongsToMany are exact same as those provided by hasMany.
+As for onDelete and onUpdate default value is 'CASCADE' so we don't need to explicitly specify that.
+
+
+
+
+
+
+
+
+
 
 
 
