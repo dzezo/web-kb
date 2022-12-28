@@ -1,0 +1,8 @@
+{
+  "name": "blog",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "full:install": "cd client && npm install && cd ../comments && npm install && cd ../event-bus && npm install && cd ../moderation && npm install && cd ../posts && npm install && cd ../query && npm install"
+  }
+}
