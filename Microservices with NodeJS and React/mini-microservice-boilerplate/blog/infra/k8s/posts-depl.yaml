@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posts-depl
+spec:
+  # Number of pods we want to create running some particular image
+  replicas: 1
+  # Selector takes a look at all the pods that have been created.
+  # Matches all pods that have label "app: posts"
+  # Those are pods this Deployment is in charge of
+  selector:
+    matchLabels:
+      app: posts
+  # This is where we specify exact configuration of a Pod we want our Deployment to create.
+  template:
+    # This is going to be applied to Pods created by this Deployment.
+    # With this we are saying that we want to have Pod with label "app: posts".
+    # This is how template and selector work together.
+    metadata:
+      labels:
+        app: posts
+    spec:
+      containers:
+        - name: posts
+          image: dzzo/posts

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: posts-srv
+spec:
+  type: NodePort
+  # Role of NodePort Service is to expose set of nodes(pods) to the outside world so it needs to know what pods to expose.
+  # This tells it to look for all created pods that have label 'app: posts' and our Deployment created those.
+  selector:
+    app: posts
+  ports:
+    - name: posts # name for logging purposes
+      protocol: TCP
+      # Service port
+      port: 4000
+      # Pod port (application listens on this port)
+      targetPort: 4000

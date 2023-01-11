@@ -42,5 +42,6 @@ app.post("/events", (req, res) => {
 });
 
 app.listen(4000, () => {
+  console.log("Posts mini-service v20");
   console.log("Listening on 4000");
 });

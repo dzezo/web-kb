@@ -67,3 +67,98 @@ code . ~/.bashrc
 In real world scenario we Deployment k8s object to create pods. This object is intended to manage a set of pods. It can be one pod and as many as 100 pods. All those pods are identical in nature, they will all be running the same config and the same container inside them.
 
 Deployments job is to re-start pods that crash. One more neat thing that Deployment can do is change version of pods seamlessly, first by creating the same number of new version pods, then transfering management to them while sunseting old pods.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posts-depl
+spec:
+  # Number of pods we want to create running some particular image
+  replicas: 1
+  # Selector takes a look at all the pods that have been created.
+  # Matches all pods that have label "app: posts"
+  # Those are pods this Deployment is in charge of
+  selector:
+    matchLabels:
+      app: posts
+  # This is where we specify exact configuration of a Pod we want our Deployment to create.
+  template:
+    # This is going to be applied to Pods created by this Deployment.
+    # With this we are saying that we want to have Pod with label "app: posts".
+    # This is how template and selector work together.
+    metadata:
+      labels:
+        app: posts
+    spec:
+      containers:
+        - name: posts
+          # If there is no version number on image, k8s will first look on docker hub for image.
+          # That's why there is pull policy on never.
+          image: dzzo/posts:0.0.1
+          imagePullPolicy: Never
+```
+
+**Deployment Commands**
+
+`kubectl get deployment` Lists all the running deployments
+
+`kubectl describe deployment [depl_name]` Print out details about specific deployment
+
+`kubectl apply -f [config_file_name]` Create a deployment out of config file. This will create as many pods as specified by replicas property. When you try to delete this pods manualy they will re-appear again. Only way to remove pods created by Deployment is to remove Deployment.
+
+`kubectl delete deployment [depl_name]` Delete a deployment
+
+**Updating Deployment**
+
+Steps to update image used by Deployment:
+
+- The deployment must be using the 'latest' tag in the pod spec section (effect is the same if you omit image version).
+- Make an update to your code
+- Build the image
+- Push the image to docker hub
+- Run the command `kubectl rollout restart deployment [depl_name]`
+
+### Networking with Services
+
+K8s object called Service provide networking between pods, we can create them through config files just like Pods and Deployments.
+
+Services is used whenever we want to create request between pods, for example between _Event Bus_ and some service, or when we want to access some pod outside of k8s cluster.
+
+There are a couple of Services:
+
+**Cluster IP** - Sets up easy-to-remember URL to access a pod. Only exposes pods to other pods the cluster
+
+**Node Port** - Makes a pod accessible from outside the cluster. Usually only used for dev purposes.
+
+**Load Balancer** - Makes a pod accessible from outside the cluster. This is the right way to expose a pod to the outside world.
+
+**External Name** - Redirects an in-cluster request to a CNAME url
+
+### NodePort Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: posts-srv
+spec:
+  type: NodePort
+  # Role of NodePort Service is to expose set of nodes(pods) to the outside world so it needs to know what pods to expose.
+  # This tells it to look for all created pods that have label 'app: posts' and our Deployment created those.
+  selector:
+    app: posts
+  ports:
+    - name: posts # name for logging purposes
+      protocol: TCP
+      # Service port
+      port: 4000
+      # Pod port (application listens on this port)
+      targetPort: 4000
+```
+
+There is another port that gets created once we apply this and it is called **nodePort**. **NodePort** is a port to a Node(VM) which runs this service.
+
+For users running minikube run `minikube ip` to get local k8s cluster ip address since it won't be localhost
+
+### Cluster IP Service
