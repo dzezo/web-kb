@@ -1,0 +1,17 @@
+## react-icons
+
+This is a lib that provides you with alot of icons that are made as React components. Things like Font Awsome, Feather, Github icons etc...
+One thing to mention here is that you can add className to each icon component and then target that class if needed.
+
+<FaGithubSquare className="icon" />
+
+## Vanilla JS
+
+Gain access to text content of some HTML element:
+e.target.textContent;
+
+Gain access to HTML element coordinates && size:
+e.target.getBoundingClientRect();
+
+Gain access of HTML element class list (array of classes):
+e.target.classList.contains("link-btn")
