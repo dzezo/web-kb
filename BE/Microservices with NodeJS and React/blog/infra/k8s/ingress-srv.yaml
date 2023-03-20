@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-srv
+  # This will tell ingress-controller that we want to feed it some settings,
+  # ingress-controller is constantly scanning for incoming config files and is looking for annotation like one bellow.
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  rules:
+    # Inside kubernetes we can host infrastructure for multiple different apps at the same time.
+    # We distinguish them by using domains like post.com
+    # This means that routing startegy bellow apply only to post.com application
+    - host: posts.com
+      http:
+        paths:
+          - path: /posts/create
+            pathType: Prefix
+            backend:
+              service:
+                name: posts-clusterip-srv
+                port:
+                  number: 4000
+          - path: /posts
+            pathType: Prefix
+            backend:
+              service:
+                name: query-srv
+                port:
+                  number: 4002
+          - path: /posts/?(.*)/comments
+            pathType: Prefix
+            backend:
+              service:
+                name: comments-srv
+                port:
+                  number: 4001
+          # This path will hit react-app, and in order to support react-router we need to have any wildcard after /
+          # This kind of path needs to be at the very end of paths, since path position matters here (top priority first)
+          - path: /?(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: client-srv
+                port:
+                  number: 3000

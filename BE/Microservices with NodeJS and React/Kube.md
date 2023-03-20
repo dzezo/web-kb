@@ -162,3 +162,89 @@ There is another port that gets created once we apply this and it is called **no
 For users running minikube run `minikube ip` to get local k8s cluster ip address since it won't be localhost
 
 ### Cluster IP Service
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posts-depl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: posts
+  template:
+    metadata:
+      labels:
+        app: posts
+    spec:
+      containers:
+        - name: posts
+          image: dzzo/posts
+# This is yaml separator, using this we can have both Deployment and ClusterIP inside one file.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: posts-clusterip-srv
+spec:
+  selector:
+    app: posts
+  type: ClusterIP
+  ports:
+    - name: posts
+      protocol: TCP
+      port: 4000
+      targetPort: 4000
+```
+
+Whenever we want to establish communication between pods, we are always going to create ClusterIP service for the pod we are trying to reach out to. Once we have created that ClusterIP service to make a request to it we are going to write url of `http://posts-clusterip-srv:4000`.
+
+We need to go into our index.js file for our service and change those ip-adresses for this one.
+
+### Load Balancer Services
+
+The goal of this service is for us to have one single point of entry to our entire k8s cluster. We are then going to make sure that our FE app makes a request to that service, and we are going to place some logic inside this LB service to route requests to appropriate pods (what we are really reaching out is ClusterIP service).
+
+**Load Balancer Service** tells k8s to reach out to its provider and provision a load balancer. Gets traffic in to a single pod.
+At some point of time our cluster is going to be hosted on some cloud provider (AWS, GC, Azure), and in order to allow traffic from outside world to a specific pod inside our cluster, we need to tell our provider that we want to provision a `Load Balancer`, and we do so by creating `LoadBalancer Service`.
+
+**Ingress or Ingress Controller** a pod with a set of routing rules to distribute traffic to other services. Problem appears when we have multiple pods that we want to access, and we don't want to put that logic inside our frontend app. And since Load Balancer can't do everything for us we need Ingress. Ingress is a pod that sits between Load Balancer and our other pods, and its task is to route trafic to appropriate pod.
+
+### Ingress
+
+For minikube users run `minikube addons enable ingress` this will add ingress-nginx-controller inside your cluster, after that all we need to do is feed config file to this controller in order to reconfigure its routing strategy.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-srv
+  # This will tell ingress-controller that we want to feed it some settings,
+  # ingress-controller is constantly scanning for incoming config files and is looking for annotation like one bellow.
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    # Inside kubernetes we can host infrastructure for multiple different apps at the same time.
+    # We distinguish them by using domains like post.com
+    # This means that routing startegy bellow apply only to post.com application
+    - host: posts.com
+      http:
+        paths:
+          - path: /posts
+            pathType: Prefix
+            backend:
+              service:
+                name: posts-clusterip-srv
+                port:
+                  number: 4000
+```
+
+One thing to note is that ingress doesn't see route methods, so POST and GET method on route /posts are the same (/posts). What we need to do is have unique paths for everything.
+
+### Skaffold
+
+Whenever we want to update our code we need to go through multiple steps like building the image, pushing to hub and running `rollout restart` command which can get tedeous.
+
+Skaffold is a command line tool that enables you to make code update in a running pod, and also makes it easy to create/delete all objects tied to a project at once.
