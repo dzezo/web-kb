@@ -3,13 +3,9 @@
 ### Terminology
 
 **Kubernetes Cluster** - A collection of nodes + master to manage them.
-
 **Node** - A virtual machine that will run our containers
-
 **Pod** - More or less a running container. Technically, a pod can run multiple containers.
-
 **Deployment** - Monitors a set of pods, make sure they are running and restarts them if they crash.
-
 **Service** - Provides an easy-to-remember URL to access running container (Pod)
 
 ### Kubernetes Config Files
@@ -248,3 +244,7 @@ One thing to note is that ingress doesn't see route methods, so POST and GET met
 Whenever we want to update our code we need to go through multiple steps like building the image, pushing to hub and running `rollout restart` command which can get tedeous.
 
 Skaffold is a command line tool that enables you to make code update in a running pod, and also makes it easy to create/delete all objects tied to a project at once.
+
+### Kubectl Contexts
+
+In order to connect to k8s cluster on our cloud we are going to use the same `kubectl` command just with different context. Context can be thought of as different connection settings.
