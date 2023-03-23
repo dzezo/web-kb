@@ -10,7 +10,7 @@ Docker makes it really easy to install and run software without worrying about s
 
 **Docker Server (Docker Daemon)** - Tool that is responsible for creating images, running containers, etc...
 
-**Docker image** - Docker image is a single file with all the dependencies and configurations required to run a program.
+**Docker Image** - Docker image is a single file with all the dependencies and configurations required to run a program.
 
 **Docker Container** - Instance of an image. So essentially it runs a program with its own isolated set of hardware resources.
 

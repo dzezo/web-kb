@@ -68,6 +68,10 @@ There is another way to handle async communication and that is to have DB for th
   1. Data duplication.
   2. Harder to understand
 
+#### Database Management
+
+If we delete or restart the pod running MongoDB for example, we will lose all of the data in it!
+
 #### Authentication in microservices
 
 Authentication in microservices is an unsolved problem, there are many ways to do it, and no one way is right.
@@ -133,3 +137,25 @@ For SPA react app there are two requests from users before content is displayed
 After this we usually make auth request followed by content request.
 
 With SSR react app content is delivered with the very first request, which presents an issue. That issue is solved by using **Cookie** as transport mechanism for our JWT.
+
+#### Testing in Microservices
+
+1. Test a single piece of code in isolation
+   **Example**: Single middleware
+2. Test how different pieces of code work together
+   **Example**: Request flowing through multiple middlewares to a request handler
+3. Test how different components work together
+   **Example**: Make request to service, ensure write to database was completed
+4. Test how different services work together
+   **Example**: Creating a _payment_ at the _payments service_ should affect the _orders service_
+   **Challenge**: This is very difficult to achive in microservices environment, we need to think of ways to construct some kind of environment quickly and cost effectively to test it. Should we spin a test k8s cluster and launch payments and orders service inside of it, how do we issue request to these things and how to assert results to these things.
+
+##### Testing Goals
+
+1. Basic request handling
+   1.1. Start in-memory copy of MongoDB
+   1.2. Start up our express app
+   1.3. Use supertest lib to make fake requests to our express app
+   1.4. Run assertions to make sure that request did the right thing
+2. Some tests around models
+3. Event emitting and receiving

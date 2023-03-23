@@ -248,3 +248,47 @@ Skaffold is a command line tool that enables you to make code update in a runnin
 ### Kubectl Contexts
 
 In order to connect to k8s cluster on our cloud we are going to use the same `kubectl` command just with different context. Context can be thought of as different connection settings.
+
+### K8s Secrets
+
+Creating secret - `kubectl create secret generic jwt-secret --from-literal=JWT_KEY=1234`
+
+There are many types of secretes we can create in k8s, _generic_ secret is all-purpose secret information.
+Command above will create general purpose secret named _jwt-secret_ with one key value pair _JWT_KEY=1234_, one secret can have many key value pairs.
+
+Getting secrets - `kubectl get secrets`
+
+Accessing cluster secrets inside a pod can be achived with following configuration
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-depl
+spec:
+  # Number of pods to create
+  replicas: 1
+  # Tell deployment how to find pods
+  selector:
+    matchLabels:
+      app: auth
+  # How to create each pod
+  template:
+    # Should match with selector above
+    metadata:
+      labels:
+        app: auth
+    # Tell pod how to behave
+    spec:
+      containers:
+        - name: auth # Only used for logging purposes
+          image: dzzo/ticketing-auth
+          env:
+            - name: JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_KEY
+```
+
+You would then use this env value inside node application like you normally would `process.env.JWT_KEY`
