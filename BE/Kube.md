@@ -292,3 +292,7 @@ spec:
 ```
 
 You would then use this env value inside node application like you normally would `process.env.JWT_KEY`
+
+### Port-Forwarding with Kubectl
+
+`kubectl port-forward [pod-name] [local-machine-port]:[pod-port]`
