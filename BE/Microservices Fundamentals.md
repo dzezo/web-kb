@@ -159,3 +159,8 @@ With SSR react app content is delivered with the very first request, which prese
    1.4. Run assertions to make sure that request did the right thing
 2. Some tests around models
 3. Event emitting and receiving
+
+#### Git Repo Approaches
+
+- Mono Repo: One repo for all services
+- Repo-Per-Service: One repo per service
