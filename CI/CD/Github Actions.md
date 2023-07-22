@@ -112,7 +112,14 @@ We can use namecheap to buy domain. Once we buy domain we need to setup custom D
 - ns2.digitalocean.com
 - ns3.digitalocean.com
 
-then in digital ocean networking we need to create records for
+then in Digital ocean Networking we need to create records for
 
 - A
 - CNAME
+
+#### Next steps
+
+- Add in HTTPS (see cert-manager.io)
+- Add in Email support (Mailchimp/Sendgrid)
+- Add in build steps for our prod cluster (our servicse and nextJS run in dev mode currently)
+- Staging cluster

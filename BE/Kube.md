@@ -1,5 +1,20 @@
 ## Kubernetes
 
+Kubernetes is a tool for running a bunch of different containers together. We give it some configuration to describe how we want our containers to run and interact with eachother.
+
+With kubernetes we create **kubernetes cluster**. Kubernetes cluster is a set of different virtual machines, these vm's are reffered to as **nodes** and they are all managed by something called **master**. Master is program that manages everything in the cluster.
+
+We are going to tell kubernetes to run some program for us, and when we do is its going to take our program and then more and less randomly assign it to be executed by one of this nodes.
+
+To tell kubernetes we are going to create some configuration files that are going to provide some explict directions to kubernetes on what we want to do, for example:
+
+1. Run 2 copies of Posts service
+2. Allow copies of Posts to be accessible from network.
+
+This configuration file is then fed to master. Master attempts to create two different copies of Posts services wrapped up in a **Docker container** , these containers are going to then be assigned to two different vms.
+
+Communication between this 2 copies is done by shared communication channel provided by Kubernetes, so instead of teaching our Event-bus service how to communicate with each vm, we can configure it to communicate with this shared communication channel and request will be forwared properly.
+
 ### Terminology
 
 **Kubernetes Cluster** - A collection of nodes + master to manage them.
@@ -60,7 +75,7 @@ code . ~/.bashrc
 
 ### Deployments
 
-In real world scenario we Deployment k8s object to create pods. This object is intended to manage a set of pods. It can be one pod and as many as 100 pods. All those pods are identical in nature, they will all be running the same config and the same container inside them.
+In real world scenario we use **Deployment** k8s object to create pods. This object is intended to manage a set of pods. It can be one pod and as many as 100 pods. All those pods are identical in nature, they will all be running the same config and the same container inside them.
 
 Deployments job is to re-start pods that crash. One more neat thing that Deployment can do is change version of pods seamlessly, first by creating the same number of new version pods, then transfering management to them while sunseting old pods.
 
