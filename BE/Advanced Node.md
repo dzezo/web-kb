@@ -343,4 +343,146 @@ With redis you can also set expiration time of a value like this:
 client.set("hi", "there", "EX", 5); // this value will expire after 5s
 ```
 
-### Caching in Action
+### Caching system
+
+In order to properly implement caching system into our application we need to think and solve following problems:
+
+1. Code reusability
+   - Figure out how to have caching integrated into query calls
+2. Cache expiry
+   - Add timeout to values assigned to redis (TTL).
+   - Add ability to reset all values tied to some specifc event
+3. Unique keys
+   - Figure out more robust solution for generating cache keys
+
+##### Cache implementation
+
+We are going to accomplish this by monkey patching mongoose `exec` function, which is always called after query has been prepared.
+
+```js
+const mongoose = require("mongoose");
+
+// Monkey patching the exec function of mongoose.Query
+const exec = mongoose.Query.prototype.exec; // Original exec function
+
+// We are using a function because this should refer to the query instance
+mongoose.Query.prototype.exec = async function () {
+  return exec.apply(this, arguments);
+};
+```
+
+We can break down cache implementation in three steps:
+
+1. Create unique key _(some suggestions below)_
+   - Name of collection we are querying
+   - All query parameters _(params, limit, sort, ...)_
+2. Check Redis on this key **If** value is found return value.
+3. **Else** retrieve value from DB then store it in Redis before returning it.
+
+```js
+mongoose.Query.prototype.exec = async function () {
+  const keyJSON = {
+    ...this.getQuery(),
+    _collection: this.mongooseCollection.name,
+  };
+  const key = JSON.stringify(keyJSON); // Key must be string
+
+  const cacheValue = await client.get(key);
+  if (cacheValue) {
+    // cache hit
+    const parsedCacheValue = JSON.parse(cacheValue);
+
+    // exec should return mongoose model
+    return Array.isArray(parsedCacheValue)
+      ? parsedCacheValue.map((el) => new this.model(el))
+      : new this.model(parsedCacheValue);
+  }
+
+  // cache miss
+  const result = await exec.apply(this, arguments);
+  client.set(key, JSON.stringify(result)); // Value must be string
+
+  return result;
+};
+```
+
+It is important to remember that Redis store data as string, that is why we have to stringify/parse whenever we use it.
+
+##### Cache invalidation
+
+We don't want to persist our cache forever. Luckily Redis has built-in solution for this.
+
+When setting value in Redis we can specify exipiry time like this:
+
+```js
+// Expire value after 10 sec
+client.set(key, JSON.stringify(result), "EX", 10);
+```
+
+We should also expose function to clear entry from Redis, so that we can invalidate cache on demand.
+
+```js
+function clearHash(hashKey) {
+  client.del(JSON.stringify(hashKey));
+}
+```
+
+We don't want to always use cache as well, caching should be opt-in service. To implement this we can add `cache` function to `Query` prototype.
+
+```js
+mongoose.Query.prototype.cache = function () {
+  this.useCache = true;
+  return this; // to make it chainable
+};
+
+mongoose.Query.prototype.exec = async function () {
+  if (!this.useCache) {
+    return exec.apply(this, arguments);
+  }
+
+  // Previous cache implementation
+};
+```
+
+##### Cache in action
+
+To enable caching we just need to chain our `cache` function to any `Query` method.
+
+```js
+app.get("/api/blogs", requireLogin, async (req, res) => {
+  const blogs = await Blog.find({ _user: req.user.id }).cache();
+  res.send(blogs);
+});
+```
+
+To invalidate cache whenever new blog is inserted we can call `clearHash` **after** blog gets saved. This can be easy to forget so its probably better to create middleware.
+
+There is one issue with creating this middleware. We want to execute it after request handler and to do so we need to call `next` at the end which defeats the purpose.
+Luckily we can await execution of next middleware like this:
+
+```js
+// cleanCache.js
+module.exports = async (req, res, next) => {
+  await next(); // wait for the route handler to finish executing
+  clearHash(req.user.id);
+};
+```
+
+Final solution using this middleware would look like this:
+
+```js
+app.post("/api/blogs", requireLogin, cleanCache, async (req, res) => {
+  const { title, content } = req.body;
+
+  const blog = new Blog({
+    title,
+    content,
+    _user: req.user.id,
+  });
+
+  const [err] = await to(blog.save());
+
+  if (!err) res.send(blog);
+  else res.send(400, err);
+});
+```
