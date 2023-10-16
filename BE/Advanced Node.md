@@ -486,3 +486,404 @@ app.post("/api/blogs", requireLogin, cleanCache, async (req, res) => {
   else res.send(400, err);
 });
 ```
+
+## Automated Headless Browser Testing
+
+### Chromium with Puppeteer
+
+To launch Chromium instance we are going to use Puppeteer library. Once launched this Chromium instance will be a separate process outside of NodeJS. This causes commuication between Node and Chromium to always be `async`!
+Puppeteer communicates by serializing our code into text, that text gets sent to Chromium where it gets evaled inside the browser.
+
+```js
+// Represents browser window
+const browser = await puppeteer.launch({
+  headless: false, // This will render browser GUI
+});
+
+// Represents browser tab
+const page = await browser.newPage();
+
+// Closes browser instance
+await browser.close();
+```
+
+This will open up Chromium browser with two tabs opened (one by default) and both showing blank pages.
+In order to navigate to our application we are going to use `goto`
+
+```js
+await page.goto("localhost:3000");
+```
+
+To scrape page content for specific element we can pass selector to `$eval` call, this works simlarly to `$` in JQuery.
+
+```js
+const text = await page.$eval("a.brand-logo", (el) => el.innerHTML);
+```
+
+### Testing with Puppeteer
+
+Test example for asserting correct OAuth flow:
+
+```js
+const puppeteer = require("puppeteer");
+
+let browser, page;
+
+beforeEach(async () => {
+  browser = await puppeteer.launch();
+  page = await browser.newPage();
+  await page.goto("localhost:3000");
+});
+
+afterAll(async () => {
+  await browser.close();
+});
+
+test("clicking login starts oauth flow", async () => {
+  await page.click(".right a"); // Simulate clicking on login button
+  const url = await page.url(); // Check current page URL
+  expect(url).toMatch(/accounts\.google\.com/);
+});
+```
+
+### Testing OAuth - Understanding Cookie Session
+
+In our example project we are using authentication via Google. Our backend side has two libraries to help us with auth flow.
+
+1. cookie-session
+2. passport
+
+This is how authorization of incoming request is handled:
+
+- cookie-session
+  - pulls properties `session` and `session.sig` from cookie
+  - uses `session.sig` to ensure `session` wasn't manipulated
+    - `session` + cookie signing key = `session.sig`
+    - it uses keygrip library to create `sessions.sig`
+  - decode `session` into JS object
+  - place that JS object on `req.session`
+- passport
+  - look at `req.session` and try to find `req.session.passport.user`
+  - if an id is stored there, pass it to `deserializeUser`
+  - get back user and assing it to `req.user`
+
+To test authorized actions in our application using Puppeteer we need to:
+
+1. Create mongoDB ID
+2. Create JS object where `passport.user` is set to this ID
+   ```js
+   const fakeId = "fake-id"; // Valid mongo ID
+   const sessionObject = {
+     passport: {
+       user: fakeId,
+     },
+   };
+   ```
+3. Create base64 session string out of this
+   ```js
+   const Buffer = require("safe-buffer").Buffer;
+   const sessionBuffer = Buffer.from(JSON.stringify(sessionObject));
+   const session = sessionBuffer.toString("base64");
+   ```
+4. Create session signature
+
+   ```js
+   const Keygrip = require("keygrip");
+   // config/keys.js file has side-effects
+   // checks in which environment Node is running
+   // module.exports JS object containing env values
+   const keys = require("../config/keys");
+
+   const keygrip = new Keygrip([keys.cookieKey]);
+   const sessionSig = keygrip.sign("session=" + session);
+   ```
+
+5. We need to use Puppeteer to set cookies in our Chromium instance
+
+   ```js
+   await page.setCookie({ name: "session", value: session });
+   await page.setCookie({ name: "session.sig", value: sessionSig });
+   ```
+
+6. We need to refresh in order to apply cookies
+   ```js
+   await page.goto("localhost:3000");
+   ```
+7. To check if we are logged in correctly we can try to find login button
+
+   ```js
+   // Don't let await on goto fool you!
+   // It waits for refresh to be executed, not for page to fully load
+   // We use waitFor functions for that!
+   await page.waitFor('a[href="/auth/logout"]');
+
+   // Without previous instruction test would fail
+   const text = await page.$eval(
+     'a[href="/auth/logout"]',
+     (el) => el.innerText
+   );
+
+   expect(text).toEqual("Logout");
+   ```
+
+### Session Factory
+
+We would like to use this authentication logic in multiple places. But moving this logic into Jest hook is not going to cut it, because we would need to do that for each test suite.
+
+Better approach is to create factory functions. We are going to separate this logic into two factories:
+
+1. Session factory - Factory that produces sessions.
+2. User factory - Factory that produces new users. We don't want to use same user in all our tests, because some tests might have unwanted side-effects
+
+**Session factory implementation:**
+
+```js
+const Buffer = require("safe-buffer").Buffer;
+const Keygrip = require("keygrip");
+const keys = require("../../config/keys");
+
+const keygrip = new Keygrip([keys.cookieKey]);
+
+module.exports = (user) => {
+  const sessionObject = {
+    passport: {
+      user: user._id.toString(),
+    },
+  };
+
+  const sessionBuffer = Buffer.from(JSON.stringify(sessionObject));
+  const session = sessionBuffer.toString("base64");
+  const sig = keygrip.sign("session=" + session);
+
+  return { session, sig };
+};
+```
+
+**User factory implementation:**
+Simply creates user and saves it to mongoDB
+
+```js
+const mongoose = require("mongoose");
+const User = mongoose.model("User");
+
+module.exports = () => {
+  return new User({}).save();
+};
+```
+
+This code will throw an error! But, Why?
+Whenever we run Jest it starts new Node environment. Then it looks for all files that end in `.test.js` and executes **ONLY** them.
+This means that our new Node env is not connected to mongoDB and is unaware that User model even exists.
+
+To fix this issue we are going to create `setup.js` file inside test folder to configure Jest.
+
+```js
+// This line will tell Jest what User model is
+require("../models/User");
+
+const mongoose = require("mongoose");
+const keys = require("../config/keys");
+
+//
+mongoose.Promise = global.Promise;
+mongoose.connect(keys.mongoURI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+});
+```
+
+Making this file is not enough we need to tell Jest to run it. We can specify this in `package.json` with following entry:
+
+```json
+"jest": {
+  "setupTestFrameworkScriptFile": "./tests/setup.js"
+},
+```
+
+### Intoduction to Proxies
+
+There is a problem we want to take Page class from Puppeteer and extend it to have login method. This login method is going to use login logic that we have established above.
+We don't want to do this with monkey patching! What are our options?
+
+Whenever we want to enchance functionalities of some object without actually changing it we can use Proxies.
+Proxy allow us to manage access to some target object or multiple target objects. Idea is that whenever we want to access object we can access it through proxy, which is going to be responsible for dealing with that access in some custom way.
+
+Example of you can use Proxy to enhance Page from Puppeteer.
+
+```js
+class CustomPage {
+  static async build() {
+    const browser = await puppeteer.launch({ headless: false });
+    const page = await browser.newPage();
+    const customPage = new CustomPage(page);
+
+    return new Proxy(customPage, {
+      get: function (target, property) {
+        return target[property] || browser[property] || page[property];
+      },
+    });
+  }
+
+  constructor(page) {
+    this.page = page;
+  }
+
+  async login() {
+    const user = await userFactory();
+    const { session, sig } = sessionFactory(user);
+
+    await this.page.setCookie({ name: "session", value: session });
+    await this.page.setCookie({ name: "session.sig", value: sig });
+    await this.page.goto("localhost:3000/blogs");
+    await this.page.waitFor('a[href="/auth/logout"]');
+  }
+
+  async getContentsOf(selector) {
+    return this.page.$eval(selector, (el) => el.innerHTML);
+  }
+}
+```
+
+### Test timeout
+
+Whenever a Jest test runs by default i has 5 seconds to either pass or fail a test. There can be a scenario where it can take more than 5 seconds to do something.
+To change this you can add following line to your `setup.js` file:
+
+```js
+// Extends default timeout to 30 seconds
+jest.setTimeout(30000);
+```
+
+### Common Test Setup
+
+Blog test suite breakdown example:
+
+- **When** logged in **(state)**
+  - Can see the form **(assertion)**
+  - **When** using valid form inputs **(state)**
+    - Submitting takes user to review screen **(assertion)**
+    - Submitting then saving adds blog to Blogs page **(assertion)**
+  - **When** using invalid form inputs **(state)**
+    - Submiting shows error messages **(assertion)**
+- **When** not logged in **(state)**
+  - Creating blog post results in an error **(assertion)**
+  - Viewing blog post results in an error **(assertion)**
+
+When we are coming up with test suite assertions, it is very beneficial to find their common testing states, because each testing state requries some setup, and we don't want to repeat them.
+
+Every state is a **Describe Statement**, and every assertions is a **Test Statement**.
+Describe Statement is used to group tests that share similar setup logic. It can have both Test and Describe Statements and can define Jest hooks to setup common conditions.
+
+```js
+describe("When logged in", async () => {
+  beforeEach(async () => {
+    await page.login();
+    await page.click("a.btn-floating");
+  });
+
+  test("Can see blog create form", async () => {
+    // beforeEach: logged in and on correct page
+    const label = await page.getContentsOf("form label");
+    expect(label).toEqual("Blog Title");
+  });
+
+  describe("And using invalid inputs", async () => {
+    beforeEach(async () => {
+      // Submitting empty form
+      await page.click("form button");
+    });
+
+    test("the form shows an error message", async () => {
+      // beforeEach: logged in and on correct page
+      // beforeEach: form submitted
+
+      const titleError = await page.getContentsOf(".title .red-text");
+      const contentError = await page.getContentsOf(".content .red-text");
+
+      expect(titleError).toEqual("You must provide a value");
+      expect(contentError).toEqual("You must provide a value");
+    });
+  });
+
+  describe("And using valid inputs", async () => {
+    beforeEach(async () => {
+      // Submitting valid form
+      await page.type(".title input", "My Title");
+      await page.type(".content input", "My Content");
+      await page.click("form button");
+    });
+
+    test("Submitting takes user to review screen", async () => {
+      const text = page.getContentsOf("h5");
+      expect(text).toEqual("Please confirm your entries");
+    });
+
+    test("Submitting then saving adds blog to index page", async () => {
+      // sends request to BE
+      await page.click("button .green");
+      // we need to wait for it to complete and redirect
+      await page.waitFor(".card");
+
+      const title = page.getContentsOf(".card-title");
+      const content = page.getContentsOf("p");
+
+      expect(title).toEqual("My Title");
+      expect(content).toEqual("My Content");
+    });
+  });
+});
+
+describe("User is not logged in", async () => {
+  test("User cannot create blog posts", async () => {
+    const evalFn = async () => {
+      const res = fetch("/api/blogs", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "My Title",
+          content: "My Content",
+        }),
+      });
+
+      return res.json();
+    };
+
+    const result = await page.evaluate(evalFn);
+    expect(result).toEqual({ error: "You must log in!" });
+  });
+});
+```
+
+## Scalable Image/File Upload
+
+When uploading image to AWS S3 through Express the image gets streamed to our backend where it is held into temporary storage until all chunks are received.
+Issue here is that we are going to spend alot of Express resources (CPU and RAM) to deal with this image upload. This approach is alos not scalable.
+Better alternative would be to use S3 presigned URL.
+
+### Presigned URL
+
+File upload flow:
+
+1. Client tells server it needs to upload file to S3. Includes file name and file type.
+2. Server asks S3 for presigned URL
+3. AWS S3 responds with presigned URL that only works fro a file matching the original file name
+4. Server sends url to React client
+5. Client uploads image file **directly** to S3
+6. Client tells server the upload was successful. Server saves URL of that new image
+
+Features of presigned URL:
+
+1. URL can only be used for a single file upload
+2. URL encodes the file name and type of file
+3. URL can expire
+4. URL is generated by a secure request between our server and AWS
+5. URL only works for the S3 bucket it is created for
+
+### Presigned URL in Action
