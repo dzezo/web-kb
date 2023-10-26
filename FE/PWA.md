@@ -833,3 +833,157 @@ function openUrl(url) {
   });
 }
 ```
+
+## Native Device Features
+
+### Device Camera
+
+To capture image from our device camera we are going to use `<video />` for streaming and `<canvas />` for storing snapshot.
+
+```html
+<div>
+  <video id="player" autoplay></video>
+  <canvas id="canvas"></canvas>
+</div>
+```
+
+To access media devices like camera and microphone we use `mediaDevice` property on navigator. Media device property might not be available on all browsers, so it might be good idea to polyfill.
+
+```js
+// polyfilling mediaDevices
+if (!("mediaDevices" in navigator.mediaDevices)) {
+  navigator.mediaDevices = {};
+}
+
+if (!("getUserMedia" in navigator.mediaDevices)) {
+  navigator.mediaDevices.getUserMedia = function (constraints) {
+    // polyfilling for safari and mozilla
+    var getUserMedia =
+      navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    // reject for unsupported
+    if (!getUserMedia) {
+      return Promise.reject(new Error("getUserMedia is not implemented"));
+    }
+
+    return new Promise((res, rej) => {
+      getUserMedia.call(navigator, constraints, res, rej);
+    });
+  };
+}
+```
+
+Now to use our media devices like microphone and/or camera we just call `getUserMedia` which is going to ask for a permission if one isn't granted yet.
+
+```js
+function startVideoStream() {
+  navigator.mediaDevices
+    .getUserMedia({ video: true }) // you can use audio as well
+    .then((stream) => {
+      videoPlayer.srcObject = stream;
+      videoPlayer.style.display = "block";
+    })
+    .catch((err) => {
+      // User denied access or unsupported
+      console.log(err);
+    });
+}
+```
+
+To take a snapshot from camera stream we are going to use canvas. Canvas is going to be place where we draw our image from video element source.
+Once image is drawn we are going to extract [DataURL](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URLs) from canvas and convert it into File Blob. Note that we can store File Blob in IndexedDB for offline sync.
+
+```js
+var picture;
+
+function takeSnapshot() {
+  var context = canvasElement.getContext("2d");
+  var imgWidth = canvasElement.width;
+  var imgHeight =
+    videoPlayer.videoHeight / (videoPlayer.videoWidth / canvasElement.width);
+
+  context.drawImage(videoPlayer, 0, 0, imgWidth, imgHeight);
+  picture = dataURItoBlob(canvasElement.toDataURL()); // saves to global variable
+
+  videoPlayer.srcObject.getVideoTracks().forEach((tracks) => tracks.stop()); // close camera by stopping the stream
+}
+
+captureButton.addEventListener("click", (event) => {
+  canvasElement.style.display = "block";
+  videoPlayer.style.display = "none";
+  captureButton.style.display = "none";
+
+  takeSnapshot();
+});
+```
+
+Inorder to send image to our server we need to use FormData when issuing request, example:
+
+```js
+function savePost(post) {
+  const formData = new FormData();
+  formData.append("id", post.id);
+  formData.append("title", post.title);
+  formData.append("location", post.location);
+  formData.append("file", post.picture, post.id + ".png");
+
+  return fetch(postsURL, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+function syncPosts() {
+  return readAllData("sync-posts").then((posts) => {
+    posts.forEach((post) => {
+      savePost(post)
+        .then((res) => clearData("sync-posts", post.id))
+        .catch((err) => console.err(err));
+    });
+  });
+}
+
+self.addEventListener("sync", function (event) {
+  if (event.tag === "sync-new-posts") {
+    event.waitUntil(syncPosts());
+  }
+});
+```
+
+### Device Location
+
+Geolocation API doesn't only provide you with current position, you can also watch change in users position and it is well supported.
+
+```js
+var location = { lat: 0, long: 0 };
+
+locationBtn.addEventListener("click", () => {
+  if (!("geolocation" in navigator)) {
+    locationBtn.style.display = "none";
+  }
+
+  locationBtn.style.display = "none";
+  locationLoader.style.display = "block";
+
+  // This will prompt for location permission
+  navigator.geoLocation.getCurrentPostion(
+    (position) => {
+      location = {
+        lat: position.coords.latitude,
+        long: position.coords.longitude,
+      };
+
+      locationBtn.style.display = "inline";
+      locationLoader.style.display = "none";
+    },
+    (err) => {
+      location = { lat: 0, long: 0 };
+
+      locationBtn.style.display = "inline";
+      locationLoader.style.display = "none";
+    },
+    { timeour: 5000 }
+  );
+});
+```
+
+## Workbox
