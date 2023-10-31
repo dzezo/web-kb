@@ -887,3 +887,77 @@ Features of presigned URL:
 5. URL only works for the S3 bucket it is created for
 
 ### Presigned URL in Action
+
+First we are going to create a set of User Credentials with AWS IAM service to control specific S3 bucket.
+Inside AWS IAM there are two different types of records:
+
+1. **User** - Users get policies assigned to them. Users are applications or people.
+2. **Policy** - Describes what User can do on AWS.
+
+For our purposes we are going to create both User and Policy.
+When creating policy we need to specify:
+
+- Service - Service this policy applies to, in our case S3
+- Actions - What can User do with this service, in our case Write (upload images to S3)
+- Resources - Sets resources this policy applies to, in our case we want to restirct access to specific bucket by adding its ARN (Amazon Resource Name).
+
+When creating user we need to:
+
+- Choose a name for User
+- Select Access type - How user will access AWS, in our case its programmatic
+- Attach existing policy
+
+This will yield `Access key ID` and `Secret access key` which we are going to use with AWS SDK to get presigned URL.
+
+```js
+// This S3 instance is going to help us create presigned URL
+const s3 = new AWS.S3({
+  credentials: {
+    accessKeyId: keys.awsAccessKeyId,
+    secretAccessKey: keys.awsSecretAccessKey,
+  },
+  region: keys.awsRegion,
+});
+
+app.get("/api/upload", requireLogin, (req, res) => {
+  const key = `${req.user.id}/${uuid()}.jpeg`;
+  s3.getSignedUrl(
+    "putObject",
+    {
+      Bucket: keys.awsBucketName,
+      ContentType: "image/jpeg",
+      Key: key,
+    },
+    (err, url) => res.send({ key, url })
+  );
+});
+```
+
+On frontend side we are going to first request presigned url from our server and then issue `PUT` request to AWS S3 bucket. When sending file to S3 bucket it is important to match Content-Type otherwise upload will fail.
+
+```js
+// Request to our server
+const uploadConfig = await axios.get("/api/upload");
+// Request to AWS bucket
+await axios.put(uploadConfig.data.url, file, {
+  headers: {
+    "Content-Type": file.type,
+  },
+});
+```
+
+Since we are crossing origins with this upload we need to set up CORS policy on our S3 bucket to accept requests from our application.
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["PUT"],
+    "AllowedOrigins": ["http://localhost:3000"],
+    "ExposeHeaders": [],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+Next thing would be to allow public access to our S3 bucket since it is private by default, we can do this under Bucket Policy using policy generator.
