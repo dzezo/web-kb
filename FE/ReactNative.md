@@ -755,3 +755,491 @@ export const LoadingOverlay = () => {
 ```
 
 ## Authentication
+
+### Storing and Managing User Access
+
+To hold authentication state we can create React context to wrap our Navigation tree with.
+
+```js
+const AuthContext = createContext({
+  token: "",
+  isAuthenticated: false,
+});
+
+export function AuthContextProvider({ children }) {
+  const [authToken, setAuthToken] = useState();
+
+  function authenticate(token) {
+    setAuthToken(token);
+  }
+  function logout() {
+    setAuthToken(null);
+  }
+
+  return (
+    <AuthContext.Provider
+      value={{
+        token: authToken,
+        isAuthenticated: !!authToken,
+        authenticate,
+        logout,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+export function useAuthContext() {
+  return useContext(AuthContext);
+}
+```
+
+With such setup we can call `authenticate` and pass it token we received from our backend to authorize user.
+
+### Protecting Screens
+
+Under no circumstances should an un-authorized user access restricted screens. One way of doing this is to create multiple navigations stacks:
+
+```js
+function AuthStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen name={"Login"} component={LoginScreen} />
+      <Stack.Screen name={"Signup"} component={SignupScreen} />
+    </Stack.Navigator>
+  );
+}
+function AuthenticatedStack() {
+  return (
+    <Stack.Navigator>
+      <Stack.Screen name={"Welcome"} component={WelcomeScreen} />
+    </Stack.Navigator>
+  );
+}
+function Navigation() {
+  const { isAuthenticated } = useAuthContext();
+  return (
+    <NavigationContainer>
+      {isAuthenticated ? <AuthenticatedStack /> : <AuthStack />}
+    </NavigationContainer>
+  );
+}
+function App() {
+  return (
+    <>
+      <StatusBar style={"light"} />
+      <AuthContextProvider>
+        <Navigation />
+      </AuthContextProvider>
+    </>
+  );
+}
+```
+
+### Storing Auth Tokens on the Device
+
+For storing data on the device we can use 3rd party package `AsyncStorage`. It will store things differently on iOS and Android but will provide the same interface for both.
+
+It works similarly to local storage, so whenever you want to store some value you would need to convert it into string. Difference between local storage is that this storage is **async** which means that works with promises.
+
+```js
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+AsyncStorage.setItem("token", token);
+
+const getToken = async () => {
+  return await AsyncStorage.getItem("token");
+};
+```
+
+We can use this `AsyncStorage` to automatically authenticate user.
+
+It is important to move this process in root of our app to avoid navigation flickering. Navigation flickering will occur because application is initially going to display `LoginScreen` before it realizes that user is authorized.
+
+Even if we move this to root we may want to prolong `SplashScreen` (initial loading screen) of our application for better UX. To do this we can use `expo install expo-app-loading`, rendering this component will tell RN to show `SplashScreen`.
+
+Example of how it should look:
+
+```js
+import AppLoading from "expo-app-loading";
+
+const Root = () => {
+  const auth = useAuthContext();
+
+  const [isAuthenticating, setIsAuthenticating] = useState(true);
+
+  const getToken = async () => {
+    const token = await AsyncStorage.getItem("token");
+
+    if (token) {
+      auth.authenticate(token);
+    }
+
+    setIsAuthenticating(false);
+  };
+
+  useEffect(() => {
+    getToken();
+  }, []);
+
+  return isAuthenticating ? <AppLoading /> : <AppNavigation />;
+};
+
+const App = () => {
+  return (
+    <>
+      <StatusBar style="light" />
+      <AuthProvider>
+        <Root />
+      </AuthProvider>
+    </>
+  );
+};
+```
+
+## Native Device Features (Camera, Location & More)
+
+Expo provides React components for all our needs like `expo-camera` or `expo-location`.
+
+### Camera
+
+`expo-camera` this package doesn't just open device camera, it also allows you to customize camera screen, which means that you can build your own camera UI.
+
+If this is too much for you application needs you can go with `image-picker` which provides basic functionalities like accessing your pictures and starting up device camera.
+
+You must register permissions your app requires ahead of time. You need to make following update in `app.json` file to register `image-picker` permission
+
+```json
+{
+  "plugins": [
+    [
+      "expo-image-picker",
+      { "cameraPermission": "Explain to user why you need it" }
+    ]
+  ]
+}
+```
+
+#### Taking Pictures
+
+`launchCameraAsync` function returns a `Promise` because when it opens up device camera it "waits" for user to do something with it.
+Result of this function is an object containing usefull properites like `cancelled` and `uri` which points to picture location on users device.
+
+For iOS you need to manage permissions manually, for that you can use `useCameraPermissions` hook provided by `expo-image-picker` library. `requestCameraPermissions` function is asynchronous because it wait for user to decide whether or not to grant permission.
+
+```js
+import {
+  launchCameraAsync,
+  useCameraPermissions,
+  PermissionStatus,
+} from "expo-image-picker";
+
+export const ImagePicker = () => {
+  const [pickedImage, setPickedImage] = useState();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  const hasPermissions = async () => {
+    switch (cameraPermission.status) {
+      case PermissionStatus.UNDETERMINED:
+        const permissionResponse = await requestPermission();
+        // This depends on user action and can be both true or false;
+        return permissionResponse.granted;
+      case PermissionStatus.DENIED:
+        Alert.alert(
+          "Insufficient Permissions!",
+          "You need to grant camera permissions to use this feature."
+        );
+        return false;
+      default:
+        return true;
+    }
+  };
+
+  const takeImageHandler = async () => {
+    if (!(await hasPermissions())) return;
+
+    const image = await launchCameraAsync({
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.5,
+    });
+
+    setPickedImage(image);
+  };
+
+  const renderImagePreview = () => {
+    if (image.uri) {
+      return <Image sstyle={styles.image} source={{ uri: image.uri }} />;
+    } else {
+      return <Text>Nothing to preview</Text>;
+    }
+  };
+
+  return (
+    <View>
+      <View sstyle={styles.imagePreview}>{renderImagePreview()}</View>
+      <Button title={"Take Image"} onPress={takeImageHandler} />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  imagePreview: {
+    width: "100%",
+    height: 200,
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+});
+```
+
+### Location
+
+`expo-location` this package doesn't require you to declare permissions in advance, but you still need to ask for a grant on both platforms.
+
+**Note:** In RN when we go back from some screen, screen that we get back to is **not re-created**. Which means that hooks like useEffect are not going to run!
+To get around that we can use hook provided by react-navigation called useIsFocused. This hook exposes flag that tells if screen is focused or not.
+
+```js
+import {
+  getCurrentPositionAsync,
+  useForegroundPermissions,
+  PermissionStatus,
+} from "expo-location";
+
+export const LocationPicker = () => {
+  const [pickedLocation, setPickedLocation] = useState();
+  const [locationPermission, requestlocationPermission] =
+    useForegroundPermissions();
+  const isFocused = useIsFocused();
+  const navigation = useNavigation();
+  const route = useRoute();
+
+  useLayoutEffect(() => {
+    if (isFocused && route.location) {
+      setPickedLocation(route.location);
+    }
+  }, [isFocused, route]);
+
+  const hasPermissions = async () => {
+    switch (locationPermission.status) {
+      case PermissionStatus.UNDETERMINED:
+        const permissionResponse = await requestPermission();
+        // This depends on user action and can be both true or false;
+        return permissionResponse.granted;
+      case PermissionStatus.DENIED:
+        Alert.alert(
+          "Insufficient Permissions!",
+          "You need to grant location permissions to use this feature."
+        );
+        return false;
+      default:
+        return true;
+    }
+  };
+
+  const findLocation = async () => {
+    if (!(await hasPermissions())) return;
+
+    const location = await getCurrentPositionAsync();
+    setPickedLocation({
+      lat: location.coords.latitude,
+      lng: location.coords.longitude,
+    });
+  };
+
+  const pickLocation = () => {
+    navigation.navigate("Map");
+  };
+
+  const renderPickedLocation = () => {
+    if (pickedLocation) {
+      return <Image source={{ uri: getGoogleMapsImage(pickedLocation) }} />;
+    } else {
+      return <Text>No location picked yet</Text>;
+    }
+  };
+
+  return (
+    <View>
+      <View>{renderPickedLocation()}</View>
+      <View>
+        <Button title={"Find location"} onPress={findLocation} />
+        <Button title={"Pick location"} onPress={pickLocation} />
+      </View>
+    </View>
+  );
+};
+```
+
+To let user pick its location you can use another expo package `react-native-maps`. This package exposes Map component that will render Google or Apple Maps.
+
+You can use this package immediately in you dev environment, but once you are ready to deploy there are some configuration steps you need to make, online documentation has entire step-by-step blueprint available.
+
+```js
+import MapView, { Marker } from "react-native-maps";
+
+export const Map = () => {
+  const [location, setLocation] = useState();
+  const navigation = useNavigation();
+
+  const selectLocationHandler = (event) => {
+    const lat = event.nativeEvent.coordinate.latitude;
+    const lng = event.nativeEvent.coordinate.longitude;
+
+    setLocation({ lat, lng });
+  };
+
+  const savePickedLocationHandler = useCallback(() => {
+    if (!selectedLocation) {
+      Alert.alert(
+        "No location picked",
+        "You have to pick a location (by tapping on screen) first!"
+      );
+      return;
+    }
+
+    navigation.navigate("AddPlace", { location });
+  }, []);
+
+  useLayouEffect(() => {
+    navigation.setOption({
+      headerRight: () => (
+        <Button title={"Save"} onPress={savePickedLocationHandler} />
+      ),
+    });
+  }, [navigation, savePickedLocationHandler]);
+
+  return (
+    <MapView initialRegion={region} onPress={selectLocationHandler}>
+      {location ? (
+        <Marker
+          title={"Your location"}
+          coordinate={{
+            latitude: location.lat,
+            longitude: location.lng,
+          }}
+        />
+      ) : null}
+    </MapView>
+  );
+};
+
+// Some place you want map to render first,
+// delta stands for how much of map is going to be visible.
+const region = {
+  latitude: 0,
+  longitude: 0,
+  latitudeDelta: 0,
+  longitudeDelta: 0,
+};
+```
+
+If you ever need to convert location data into human readable address, you can use google maps geocoding API.
+
+```js
+const GEOCODE_API = "https://maps.googleapis.com/maps/api/geocode/json?";
+
+export const getAddress = async (lat, lng) => {
+  const url = `${GEOCODE_API}latlng=${lat},${lng}&key=${GEOCODE_API_KEY}`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error("Failed to fetch address");
+  }
+
+  const data = await res.json();
+  const addr = data.results[0].formatted_address;
+
+  return addr;
+};
+```
+
+## SQLite
+
+If you want to persist data on users device but you don't need dedicated backend to do so, you can `expo-sqlite` package.
+
+Example of working with SQLite package:
+
+```js
+// database.js
+import * from SQLite from 'expo-sqlite';
+
+const database = SQLite.openDatabase('places.db');
+
+export function init() {
+  return new Promise((res, rej) => {
+    database.transaction((tx) => {
+      tx.executeSql(
+        `CREATE TABLE IF NOT EXISTS places (
+          id INTEGER PRIMARY KEY NOT NULL,
+          title TEXT NOT NULL,
+          imageUrl TEXT NOT NULL,
+          address TEXT NOT NULL,
+          lat REAL NOT NULL,
+          lng REAL NOT NULL)`,
+        [],
+        () => { resolve(); },
+        (_, err) => { reject(err); }
+      );
+    });
+  });
+}
+
+export function insertPlace(place) {
+  return new Promise((res, rej) => {
+    database.transaction((tx) => {
+      tx.executeSql(
+        `INSERT INTO places (title, imageUri, address, lat, lng)
+          VALUES (?, ?, ?, ?, ?)`,
+        [
+          place.title,
+          place.imageUri,
+          place.address,
+          place.location.lat,
+          place.location.lng
+        ],
+        (_, res) => {
+          resolve(res.rows._array.map(place => new Place(place)));
+        },
+        (_, err) => { reject(err); }
+      );
+    });
+  });
+}
+
+export function getPlaces(place) {
+  return new Promise((res, rej) => {
+    database.transaction((tx) => {
+      tx.executeSql(
+        `SELECT * FROM places`,
+        [],
+        (_, res) => { resolve(res); },
+        (_, err) => { reject(err); }
+      );
+    });
+  });
+}
+```
+
+```js
+// App.js
+
+const App = () => {
+  const [databaseReady, setDatabaseReady] = useState(false);
+
+  useEffect(() => {
+    init()
+      .then(() => setDatabaseReady(true))
+      .catch((err) => console.err(err));
+  }, []);
+
+  if (!databaseReady) {
+    return <AppLoading />;
+  }
+
+  return <Root />;
+};
+```
