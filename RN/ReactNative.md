@@ -1169,7 +1169,7 @@ import * from SQLite from 'expo-sqlite';
 
 const database = SQLite.openDatabase('places.db');
 
-export function init() {
+export function initDB() {
   return new Promise((res, rej) => {
     database.transaction((tx) => {
       tx.executeSql(
@@ -1231,7 +1231,7 @@ const App = () => {
   const [databaseReady, setDatabaseReady] = useState(false);
 
   useEffect(() => {
-    init()
+    initDB()
       .then(() => setDatabaseReady(true))
       .catch((err) => console.err(err));
   }, []);
@@ -1242,4 +1242,247 @@ const App = () => {
 
   return <Root />;
 };
+```
+
+## Publishing RN Apps
+
+There are three main steps to publishing apps: configuring, building and submitting. Publishing Expo app is a bit easier then since you don't have to configure as much, also Expo company has Expo Cloud Service (EAS) that you can leverage to build your app for both platforms.
+
+EAS allows you to:
+
+- build for both platforms
+- upload to Apple/Google store through CLI
+- push small fixes directly to end-users (CodePush)
+
+### Configuring
+
+Things that you may want to configure for production:
+
+- Permissions
+- App Name, Version and Identifier
+- Environment Variables
+  - Expo has built-in solution for this
+- Icons and Splash screen
+  - Follow documentation and Expo will build icons with different resolutions on the fly
+
+#### Versioning your app
+
+You use **app.json** to specificy version of your app
+
+- **version** - This is user facing for both platforms.
+- **android.versionCode** - Internal for distinguishing binaries, this needs to be positive integer.
+  - This is to protect against downgrades by preventing users from installing APK with lower version code.
+  - You **cannot upload** an APK to Play store with versionCode you have already used for previous version
+  - Must not exceed 2,100,000,000
+- **ios.buildNumber** - Internal for distinguishing binaries, this needs to be tring comprised of three non-negative, period separated integers.
+  - Can contain suffix to represent stage of development d, a, b and fc (e.g. 0.0.0a1)
+  - Must not exceed 255
+
+```json
+// app.json
+
+{
+  "android": {
+    "versionCode": "1"
+  },
+  "ios": {
+    "buildNumber": "1.0.0"
+  }
+}
+```
+
+### Building
+
+- Create Expo account
+- Install EAS CLI by running `npm i -g eas-cli`
+- Login with `eas login`
+- Configure project `eas build:configure`
+
+Before we build for app store we can build for simulators to test if everything works as it should. To accomplish that we need to make some tweaks.
+
+```json
+{
+  // ...
+  "build": {
+    // ...
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
+    }
+  }
+}
+```
+
+Now we can run `eas build -p android --profile preview` to generate APK for Android, or `eas build -p ios --profile preview` for iOS.
+
+This will ask you to specify unique identifier, if its not specified already. Unique identifer should look like reverse URL, for example: `com.companyname.projectname`
+
+If everything goes according to plan you can just do `eas build -p android` to build for production.
+
+## Notifications
+
+### Local Notifications
+
+Notifications that are triggered by the installed app, for the local device.
+
+- Not sent to other users or devices
+- Scheduled, delivered and handled on the same device (no server involved)
+
+Easiest way of implementing local notification is by using `expo-notifications`, this package can also be used for push notifications as well.
+
+When using Expo Go, you shouldn't need to ask for any permissions to send or show local notifications. This will change as you build app for production.
+To ensure that notifications work correctly, you should ask for permission. For Android no changes are required but for iOS you can use `requestPermissionsAsync`. To get permission status you can use `getPermissionsAsync`
+
+#### Scheduling Notification
+
+To schedule notification we can use `scheduleNotificationAsync` function which takes one argument - an object where you set content and trigger.
+Some properties in content are platform specific so you need to take a look at official docs for that.
+Trigger property is how we schedule our notification, we can set interal or some date after which notification will appear.
+
+```js
+import * as Notifications from "expo-notifications";
+
+function scheduleNotificationHandler() {
+  Notifications.scheduleNotificationAsync({
+    content: {
+      title: "Local notifications",
+      body: "This is local notification",
+      data: { userId: 0 },
+    },
+    trigger: {
+      seconds: 5,
+    },
+  });
+}
+```
+
+With code above we are scheduling notification, but we are not handling them thats why they are not being displayed. To tell underlying platform how notifications should be handled we need to `setNotificationHandler`. We need to do this once when our application starts, so best place to do so would be `App.js`
+
+```js
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowAlert: true,
+  }),
+});
+```
+
+#### Reacting to notifications
+
+Sometimes we need to react to user clicking on notification, for that we need to register some listeners.
+
+```js
+const ScheduleNotificationButton = () => {
+  useEffect(() => {
+    const subscriptions = [];
+    // Notification displayed event
+    subscriptions.push(
+      Notifications.addNotificationReceivedListener((notification) => {
+        console.log("NOTIFICATION RECEIVED", notification);
+      })
+    );
+    // Notification interacted with event
+    subscriptions.push(
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        console.log("INTERACTED WITH NOTIFICATION", response);
+      })
+    );
+
+    return () => {
+      subscriptions.forEach((subscription) => subscription.remove());
+    };
+  }, []);
+
+  function scheduleNotificationHandler() {
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Local notifications",
+        body: "This is local notification",
+        data: { userId: 0 },
+      },
+      trigger: {
+        seconds: 5,
+      },
+    });
+  }
+
+  return (
+    <Button
+      title={"Schedule notification"}
+      onPress={scheduleNotificationHandler}
+    />
+  );
+};
+```
+
+### Push notifications
+
+To send push notification to some device whether it is from our backend or from another device we need to use external Push Notification Server provided by Apple and Google.
+Expo also provides such server, which is proxy to Apple and Google server under the hood.
+One thing to note is that push notifications are only available on real devices.
+
+#### Setup
+
+To send push notifications over Expo server you need ExpoPushToken, this token acts as device identifier. We can retrieve this token once application starts, example:
+
+```js
+const requestPermissions = async () => {
+  const currentPermissions = await Notifications.getPermissionsAsync();
+
+  if (currentPermissions.status !== "granted") {
+    const newPermissions = await Notifications.requestPermissionsAsync();
+    throw new Error("Permission not granted");
+  }
+};
+
+const setupNotifications = async () => {
+  const pushTokenData = await Notifications.getExpoPushTokenAsync();
+
+  if (Platform.OS === "android") {
+    Notifications.setNotificationChannelAsync("default", {
+      name: "default",
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  }
+
+  return pushTokenData;
+};
+
+const configurePushNotifications = () => {
+  requestPermissions()
+    .catch(() => Alert.alert("Permission required"))
+    .then(() => setupNotification);
+};
+
+const App = () => {
+  useEffect(() => {
+    configurePushNotifications();
+  }, []);
+};
+```
+
+There is a Push notification tool by Expo that helps you test push notifications on real device.
+
+We can communicate with Expo push notification server from both frontend and backend, to send push notification to some other device from frontend looks like this:
+
+```js
+const expoPushLink = "http://exp.host/--/api/v2/push/send";
+function sendPushNotificationHandler() {
+  fetch(expoPushLink, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      to: "EXPO_PUSH_TOKEN",
+      title: "Title",
+      body: "Body",
+    }),
+  });
+}
 ```
