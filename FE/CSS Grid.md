@@ -33,7 +33,9 @@ grid-template-colums: 1fr 1fr 1fr;
 grid-template-colums: repeat(3, 1fr);
 ```
 
-If you don't declare grid rows your are craeting implicit grid, meaning grid system will add rows when it reaches it's three columns
+The `1fr` unit in CSS Grid indeed represents a fraction of the available space in the grid container. However, by default, grid items can stretch to accommodate their content, which can lead to unequal column widths if the content varies significantly in size. The `minmax(0, 1fr)` function is a way to overcome this.
+
+If you don't declare grid rows your are creating implicit grid, meaning grid system will add rows when it reaches it's three columns
 
 You can attach this css propery to some **grid item** and it will make it span 2 grid columns, you can think of it as **table colspan**
 
