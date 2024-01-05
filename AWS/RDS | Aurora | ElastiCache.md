@@ -84,6 +84,71 @@ Aurora exposes **Writer Endpoint** (DNS name) which always points to your master
 
 _Why do you need proxy?_
 
-- Proxy allows you to pool and share DB connections established with database - Your applications can connect to this proxy instead of DB instance itself, which can reduce number of connections towards database. Think of lambda functions they can spawn in huge numbers create connection and disappear, this solution will allow you to re-use db connection. This also reduces failover time by up to 66% because only RDS Proxy needs to re-establish new connection towards database.
+- Proxy allows you to pool and share DB connections established with database - Your applications can connect to this proxy instead of DB instance itself, which reduces number of connections towards database. Think of lambda functions they can spawn in huge numbers create connection and disappear, this solution will allow you to reuse db connection. This also reduces failover time by up to 66% because only RDS Proxy needs to re-establish new connection towards database.
 - It enforces IAM authentication for DB
 - RDS Proxy is never publicly accessible (must be accessed from VPC)
+
+# ElastiCache
+
+The same way RDS it to get manged relational databeses, **ElastiCache is** to get **managed in-memory databases** like Redis or Memcached. It is managed because AWS takes care of OS maintenance / patching, optimizations, setup, configuration, monitoring failure recovery and backups.
+
+It's **main purpose is to relieve load from RDS by quering ElastiCache fist** and quering RDS only on cache misses. **Other purpose can be to store user sessions**, this will ensure that user is logged in across all your instances.
+
+## Redis vs Memcached
+
+Redis:
+
+- Multi AZ with automatic failover
+- Read replicas to scale reads and have high availability
+- Data durability
+- Backup and restore features
+- Supports sets and sorted sets
+
+Memcached
+
+- Multi-node for partitioning of data (sharding)
+- No high availability (replication)
+- Non persistent
+- No backup and restore
+- Multi-threaded architecture
+
+## ElastiCache Strategies
+
+### Lazy Loading / Cache-Aside / Lazy Population
+
+Application make a query to ElastiCache, result can be cache hit or cache miss. In case of cache miss, read is requested from RDS, once data is retrieved it is stored into ElastiCache for future reads.
+
+Pros:
+
+- Only requested data is cached (cache isn't filled up with unused data)
+- Node failures are not fatal (just increased latency to warm up the cache)
+  Cons:
+- Cache miss penalty results in 3 round trips (cache miss, RDS read, ElastiCache write)
+- Stale data: data can be updated in database and outdated in cache
+
+### Write Through
+
+When writing to RDS we write into cache as well. You can combine this strategy with lazy loading.
+
+Pros:
+
+- Data in cache is never stale, reads are quick
+- Write penalty (each write requires 2 calls)
+  Cons:
+- Missing Data until it is added/updated
+- Cache churn - a lot of data in cache will not get used
+
+### Cache eviction and TTL
+
+Cache eviction can occur in three ways:
+
+- You delete item explicitly from cache
+- Item is evicted because memory is full and its not recently used (LRU)
+- You set an item time to live (TTL), TTL is helpful for any kind of data and can range from few seconds to hours or days.
+
+# Amazon MemoryDB for Redis
+
+Redis-compatible, durable, in-memory database service. Difference between Redis and MemoryDB for Redis is that **MemoryDB for Redis is database with Redis-compatible API**.
+
+It gives you ultra-fast performance (160 milions request / second), and it scales seamlessly from 10s GB to 100s TB of storage.
+It stores data in-memory across up to hundreds of nodes for ultra-fast perfmance, and it store data in multi AZ to provide durability and fast recovery (Multi-AZ Transactional Log)
