@@ -236,25 +236,39 @@ Resources:
 
 This function is used to substitute variable from a text, you can combine this function with References or AWS Pseudo variables.
 
-### Rollbacks
+## Rollbacks
 
 - Stack Creation Fails - Everything rolls back (gets deleted), we have option to disable rollback and troubleshoot what happened
 - Stack Update Fails - Stack rolls back to the last known working state
 
-### Advanced Concepts
+## Service Role
 
-- **ChangeSets** - By uploading new stack to update existing one we create change set. Change set is going to show all changes that will happen, and we can itterate on this before we execute it.
-- **Nested stacks** - These are stacks within other stacks. They allow you to isolate repeated patterns or components into separate stacks (blueprints) and call them from other stacks to recreate resources.
-- **Cross stacks** - These are stacks that use export value for other stacks to import. They allow you to reuse stack resources across many different stacks.
-- **StackSets** - Admin accounts can create StackSets which can be used to create, update or delete stacks across multiple accounts and regions with a single operation. Trusted accounts can create, update and delete stack instances from StackSets. When you update stack set, all associated stack instances are updated throughout all accounts and regions
+Service Roles are CloudFront specific IAM roles, and they allow CloudFormation to create, update and delete stack resources on your behalf.
 
-### Drift
+Say that we have a user that has permissions to work with CloudFormation, if that user has `iam:PassRole` permission he can assign service role to CloudFormation instructing it to create some resource, eventho user himself doesn't have permissions to work with that resource.
 
-CloudFormation doesn't protect you against manual configuration changes. Drift is when you manually change configuration of some resource that was created by CloudFormation. To detect this drift we can use CloudFormation Drift feature (doesn't support all resource types)
+## Capabilites
 
-### Stack Policies
+- `CAPABILITY_NAMED_IAM` | `CAPABILITY_IAM` - These are capabilities you need to give to CloudFormation whenever your CloudFormation template is going to create or update IAM resources, such as when you create IAM user, role, group, policy...
+
+- `CAPABILITY_AUTO_EXAPND` - This is something you need when your CloudFormation tempate is including macro and nested stacks.
+
+If you get `InsufficientCapabilitiesException` while launchin a template, that means that the CloudFormation template was requiring capabilities, but you haven't acknowledged them.
+
+## Deletion Policy
+
+These policies control what happens when CloudFormation template is deleted or when resource is removed from CloudFormation template. They represent safety measure to perserve and backup resources.
+
+By default `DeleteionPolicy` is `Delete` so you don't have to specify it in your template. `Delete` policy won't work on S3 bucket if the bucket is not empty. So to make S3 bucket go away you can either manualy delete everything in that bucket or have another resource that does that for you.
+
+Deletion policy `Retain` perserves resource in case of deletion, and it works with all resources. Say that we have DynamoDB table that we want to perserve, in that case we would specify `DeletionPolicy: Retain`
+
+Deletion policy `Snapshot` takes a snapshot before deletion, it works with resources like: EBS Volume, ElastiCache, RDS...
+
+## Stack Policies
 
 During stack update all update actions are allowed on all resources by default, but sometimes you want to protect some resource from unintentional update, like prod database for example. In that case you need to set Stack Policy.
+
 When you set Stack Policy all resources are protected by default, so you need to have explicit ALLOW for resources you want to update
 
 ```json
@@ -275,3 +289,29 @@ When you set Stack Policy all resources are protected by default, so you need to
   ]
 }
 ```
+
+## Termination Protection
+
+`TerminationProtection` is used to prevent accidental deletes of CloudFormation stacks.
+
+## Custom Resources
+
+They are used to define a resource that is not yet supported by CloudFormation or have a custom scripts run during create, update or delete through Lambda functions (running a Lambda function to empty S3 bucket before deletion).
+
+They are defined in template using `AWS::CloudFormation::CustomResource` or `Custom::MyCustomResourceTypeName` (recommended)
+
+## Stack Sets
+
+Admin accounts can create StackSets which can be used to create, update or delete stacks across multiple accounts and regions with a single operation. When you update stack set, all associated stack instances are updated throughout all accounts and regions
+
+## Advanced Concepts
+
+- **ChangeSets** - By uploading new stack to update existing one we create change set. Change set is going to show all changes that will happen, and we can iterate on this before we execute it.
+
+- **Nested stacks** - These are stacks within other stacks. They allow you to isolate repeated patterns or components into separate stacks (blueprints) and call them from other stacks to recreate resources.
+
+- **Cross stacks** - These are stacks that use export value for other stacks to import. They allow you to reuse stack resources across many different stacks.
+
+## Drift
+
+CloudFormation doesn't protect you against manual configuration changes. Drift is when you manually change configuration of some resource that was created by CloudFormation. To detect this drift we can use CloudFormation Drift feature (doesn't support all resource types)
